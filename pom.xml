@@ -52,7 +52,11 @@
             <groupId>org.lwjgl</groupId>
             <artifactId>lwjgl-opengl</artifactId>
         </dependency>
-
+                <!-- LWJGL STB (Texture loading) -->
+        <dependency>
+            <groupId>org.lwjgl</groupId>
+            <artifactId>lwjgl-stb</artifactId>
+        </dependency>
         <!-- LWJGL Native Binaries (Windows, Linux, macOS) -->
         <dependency>
             <groupId>org.lwjgl</groupId>
@@ -67,6 +71,11 @@
         <dependency>
             <groupId>org.lwjgl</groupId>
             <artifactId>lwjgl-opengl</artifactId>
+            <classifier>natives-windows</classifier>
+        </dependency>
+        <dependency>
+            <groupId>org.lwjgl</groupId>
+            <artifactId>lwjgl-stb</artifactId>
             <classifier>natives-windows</classifier>
         </dependency>
     </dependencies>
