@@ -12,7 +12,7 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>21</maven.compiler.release>
-        <exec.mainClass>com.grafkom.viewing3d.ThreeDViewing</exec.mainClass>
+        <exec.mainClass>com.grafkom.viewing3d.VisualRealismSuite</exec.mainClass>
         <lwjgl.version>3.3.3</lwjgl.version>
         <joml.version>1.10.5</joml.version>
     </properties>
