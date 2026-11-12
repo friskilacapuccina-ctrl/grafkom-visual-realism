@@ -1,0 +1,16 @@
+langkah;fps;kondisi
+00_awal;483;Blinn-Phong | Smooth | Z ON | Cull ON | Filter Mipmap | Tekstur ON | Shadow ON | Bias normal
+a_phong;527;Phong | Smooth | Z ON | Cull ON | Filter Mipmap | Tekstur OFF | Shadow ON | Bias normal
+a_blinn;537;Blinn-Phong | Smooth | Z ON | Cull ON | Filter Mipmap | Tekstur OFF | Shadow ON | Bias normal
+b_flat;536;Blinn-Phong | Flat | Z ON | Cull ON | Filter Mipmap | Tekstur OFF | Shadow ON | Bias normal
+b_smooth;535;Blinn-Phong | Smooth | Z ON | Cull ON | Filter Mipmap | Tekstur OFF | Shadow ON | Bias normal
+c_z_on_c_on;872;Blinn-Phong | Smooth | Z ON | Cull ON | Filter Mipmap | Tekstur OFF | Shadow OFF | Bias normal
+c_z_on_c_off;895;Blinn-Phong | Smooth | Z ON | Cull OFF | Filter Mipmap | Tekstur OFF | Shadow OFF | Bias normal
+c_z_off_c_on;883;Blinn-Phong | Smooth | Z OFF | Cull ON | Filter Mipmap | Tekstur OFF | Shadow OFF | Bias normal
+c_z_off_c_off;851;Blinn-Phong | Smooth | Z OFF | Cull OFF | Filter Mipmap | Tekstur OFF | Shadow OFF | Bias normal
+d_mipmap;867;Blinn-Phong | Smooth | Z ON | Cull ON | Filter Mipmap | Tekstur ON | Shadow OFF | Bias normal
+d_nearest;667;Blinn-Phong | Smooth | Z ON | Cull ON | Filter Nearest | Tekstur ON | Shadow OFF | Bias normal
+e_shadow_on;475;Blinn-Phong | Smooth | Z ON | Cull ON | Filter Mipmap | Tekstur ON | Shadow ON | Bias normal
+e_shadow_off;806;Blinn-Phong | Smooth | Z ON | Cull ON | Filter Mipmap | Tekstur ON | Shadow OFF | Bias normal
+e_bias_acne;470;Blinn-Phong | Smooth | Z ON | Cull ON | Filter Mipmap | Tekstur ON | Shadow ON | Bias tanpa bias (acne)
+e_bias_besar;481;Blinn-Phong | Smooth | Z ON | Cull ON | Filter Mipmap | Tekstur ON | Shadow ON | Bias bias besar (peter panning)

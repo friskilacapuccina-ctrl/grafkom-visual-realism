@@ -4,10 +4,18 @@ import static org.lwjgl.glfw.GLFW.*;
 import static org.lwjgl.opengl.GL11.*;
 import static org.lwjgl.system.MemoryUtil.NULL;
 
+import java.io.File;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.file.Files;
+import java.util.List;
+import java.util.Locale;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
+import org.lwjgl.BufferUtils;
 import org.lwjgl.glfw.GLFWErrorCallback;
 import org.lwjgl.opengl.GL;
+import org.lwjgl.stb.STBImageWrite;
 
 /**
  * 3D Visual Realism Suite (Minggu 11).
@@ -17,8 +25,10 @@ import org.lwjgl.opengl.GL;
  *   B : Phong <-> Blinn-Phong          F : Flat <-> Smooth
  *   Z : Z-Buffer on/off                C : Back-face culling on/off
  *   T : Texture Nearest <-> Mipmapped  H : Shadow on/off
- *   X : Tekstur on/off                 N : mode bias shadow (normal/acne/peter panning)
- *   Panah kiri/kanan : putar posisi cahaya     R : reset kamera & cahaya     ESC : keluar
+ *   X : Tekstur on/off                 N : mode bias shadow
+ *   Panah kiri/kanan : putar cahaya    R : reset kamera & cahaya
+ *   P : PENGUJIAN OTOMATIS (screenshot + FPS ke folder hasil_uji)
+ *   ESC : keluar
  */
 public class VisualRealismSuite {
 
@@ -55,6 +65,23 @@ public class VisualRealismSuite {
     // FPS
     private double fpsTimer = 0;
     private int frames = 0, fps = 0;
+
+    // ===== pengujian otomatis =====
+    private static class Step {
+        final String name;
+        final Runnable setup;
+        Step(String name, Runnable setup) { this.name = name; this.setup = setup; }
+    }
+
+    private static final double WARM = 1.5;     // detik pemanasan sebelum mengukur
+    private static final double MEASURE = 3.0;  // detik pengukuran FPS
+    private boolean autoRunning = false;
+    private List<Step> steps;
+    private int stepIndex = 0;
+    private double stepStart, measureStart;
+    private int measureFrames;
+    private final StringBuilder csv = new StringBuilder();
+    private final File outDir = new File("hasil_uji");
 
     public static void main(String[] args) {
         new VisualRealismSuite().run();
@@ -113,6 +140,7 @@ public class VisualRealismSuite {
     private void setupCallbacks() {
         glfwSetKeyCallback(window, (w, key, scancode, action, mods) -> {
             if (action == GLFW_RELEASE) return;
+            if (autoRunning && key != GLFW_KEY_ESCAPE) return;   // abaikan tombol saat uji otomatis
             boolean press = (action == GLFW_PRESS);
             switch (key) {
                 case GLFW_KEY_ESCAPE -> glfwSetWindowShouldClose(w, true);
@@ -125,12 +153,8 @@ public class VisualRealismSuite {
                 case GLFW_KEY_H -> { if (press) shadowOn = !shadowOn; }
                 case GLFW_KEY_X -> { if (press) textureOn = !textureOn; }
                 case GLFW_KEY_N -> { if (press) biasMode = (biasMode + 1) % BIAS_NAME.length; }
-                case GLFW_KEY_T -> {
-                    if (press) {
-                        mipmapOn = !mipmapOn;
-                        texture.setMipmapped(mipmapOn);
-                    }
-                }
+                case GLFW_KEY_T -> { if (press) setMipmap(!mipmapOn); }
+                case GLFW_KEY_P -> { if (press) startAuto(); }
                 case GLFW_KEY_R -> {
                     radius = 10.0f; azimuth = 30.0f; elevation = 25.0f; lightAngle = 45.0f;
                 }
@@ -140,6 +164,7 @@ public class VisualRealismSuite {
         });
 
         glfwSetMouseButtonCallback(window, (w, button, action, mods) -> {
+            if (autoRunning) return;
             if (button == GLFW_MOUSE_BUTTON_LEFT) {
                 dragging = (action == GLFW_PRESS);
                 if (dragging) {
@@ -153,24 +178,32 @@ public class VisualRealismSuite {
         });
 
         glfwSetCursorPosCallback(window, (w, x, y) -> {
-            if (!dragging) return;
+            if (!dragging || autoRunning) return;
             azimuth -= (float) ((x - lastX) * 0.4);
             elevation = clamp(elevation + (float) ((y - lastY) * 0.4), 3.0f, 89.0f);
             lastX = x;
             lastY = y;
         });
 
-        glfwSetScrollCallback(window, (w, xoff, yoff) ->
-                radius = clamp(radius - (float) yoff * 0.5f, 3.0f, 25.0f));
+        glfwSetScrollCallback(window, (w, xoff, yoff) -> {
+            if (autoRunning) return;
+            radius = clamp(radius - (float) yoff * 0.5f, 3.0f, 25.0f);
+        });
     }
 
     private static float clamp(float v, float lo, float hi) {
         return Math.max(lo, Math.min(hi, v));
     }
 
+    private void setMipmap(boolean on) {
+        mipmapOn = on;
+        texture.setMipmapped(on);
+    }
+
     private void loop() {
         while (!glfwWindowShouldClose(window)) {
             render();
+            if (autoRunning) autoTick();   // dibaca sebelum swap supaya screenshot = frame terbaru
             glfwSwapBuffers(window);
             glfwPollEvents();
 
@@ -205,7 +238,7 @@ public class VisualRealismSuite {
 
         // ===== PASS 1: depth dari sudut pandang cahaya =====
         if (shadowOn) {
-            HSRManager.setupDepthTest(true);        // selalu ON di pass ini
+            HSRManager.setupDepthTest(true);
             HSRManager.setupBackFaceCulling(false);
             shadowFBO.bindForWriting();
             depth.use();
@@ -219,8 +252,8 @@ public class VisualRealismSuite {
 
         // ===== PASS 2: render normal dari kamera =====
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        HSRManager.setupDepthTest(zOn);             // ikut tombol Z
-        HSRManager.setupBackFaceCulling(cullOn);    // ikut tombol C
+        HSRManager.setupDepthTest(zOn);
+        HSRManager.setupBackFaceCulling(cullOn);
 
         camera.updateOrbitalPosition(radius, azimuth, elevation);
         Matrix4f view = camera.calculateLookAtMatrix();
@@ -253,10 +286,8 @@ public class VisualRealismSuite {
         ground.draw();
     }
 
-    private void updateTitle() {
-        glfwSetWindowTitle(window, String.format(
-                "Visual Realism | FPS %d | %s | %s | Z %s | Cull %s | Filter %s | Tekstur %s | Shadow %s | Bias %s",
-                fps,
+    private String modeString() {
+        return String.format("%s | %s | Z %s | Cull %s | Filter %s | Tekstur %s | Shadow %s | Bias %s",
                 blinnOn ? "Blinn-Phong" : "Phong",
                 smoothOn ? "Smooth" : "Flat",
                 zOn ? "ON" : "OFF",
@@ -264,6 +295,134 @@ public class VisualRealismSuite {
                 mipmapOn ? "Mipmap" : "Nearest",
                 textureOn ? "ON" : "OFF",
                 shadowOn ? "ON" : "OFF",
-                BIAS_NAME[biasMode]));
+                BIAS_NAME[biasMode]);
+    }
+
+    private void updateTitle() {
+        String auto = autoRunning
+                ? String.format("[AUTO %d/%d %s] ", stepIndex + 1, steps.size(), steps.get(stepIndex).name)
+                : "";
+        glfwSetWindowTitle(window, auto + "Visual Realism | FPS " + fps + " | " + modeString());
+    }
+
+    // =====================================================================
+    //  PENGUJIAN OTOMATIS: tombol P
+    // =====================================================================
+
+    private void applyBase() {
+        blinnOn = true; smoothOn = true; zOn = true; cullOn = true;
+        shadowOn = true; textureOn = true; biasMode = 0;
+        radius = 10.0f; azimuth = 30.0f; elevation = 25.0f; lightAngle = 45.0f;
+        setMipmap(true);
+    }
+
+    private List<Step> buildSteps() {
+        return List.of(
+            new Step("00_awal",          () -> { }),
+            new Step("a_phong",          () -> { textureOn = false; blinnOn = false; }),
+            new Step("a_blinn",          () -> { textureOn = false; }),
+            new Step("b_flat",           () -> { textureOn = false; smoothOn = false; }),
+            new Step("b_smooth",         () -> { textureOn = false; }),
+            new Step("c_z_on_c_on",      () -> { shadowOn = false; textureOn = false; elevation = 8.0f; }),
+            new Step("c_z_on_c_off",     () -> { shadowOn = false; textureOn = false; elevation = 8.0f; cullOn = false; }),
+            new Step("c_z_off_c_on",     () -> { shadowOn = false; textureOn = false; elevation = 8.0f; zOn = false; }),
+            new Step("c_z_off_c_off",    () -> { shadowOn = false; textureOn = false; elevation = 8.0f; zOn = false; cullOn = false; }),
+            new Step("d_mipmap",         () -> { shadowOn = false; elevation = 8.0f; }),
+            new Step("d_nearest",        () -> { shadowOn = false; elevation = 8.0f; setMipmap(false); }),
+            new Step("e_shadow_on",      () -> { }),
+            new Step("e_shadow_off",     () -> { shadowOn = false; }),
+            new Step("e_bias_acne",      () -> { biasMode = 1; }),
+            new Step("e_bias_besar",     () -> { biasMode = 2; })
+        );
+    }
+
+    private void startAuto() {
+        if (!outDir.exists() && !outDir.mkdirs()) {
+            System.err.println("Gagal membuat folder: " + outDir.getAbsolutePath());
+            return;
+        }
+        steps = buildSteps();
+        stepIndex = 0;
+        csv.setLength(0);
+        csv.append("langkah;fps;kondisi\n");
+        autoRunning = true;
+        System.out.println("=== PENGUJIAN OTOMATIS DIMULAI (jangan sentuh keyboard/mouse) ===");
+        beginStep();
+    }
+
+    private void beginStep() {
+        applyBase();
+        steps.get(stepIndex).setup.run();
+        stepStart = glfwGetTime();
+        measureStart = -1;
+        measureFrames = 0;
+        updateTitle();
+    }
+
+    private void autoTick() {
+        double now = glfwGetTime();
+        double el = now - stepStart;
+
+        if (measureStart < 0 && el >= WARM) {
+            measureStart = now;
+            measureFrames = 0;
+        }
+        if (measureStart >= 0) measureFrames++;
+
+        if (el >= WARM + MEASURE) {
+            Step s = steps.get(stepIndex);
+            double f = measureFrames / (now - measureStart);
+            saveScreenshot(s.name);
+            csv.append(String.format(Locale.US, "%s;%.0f;%s%n", s.name, f, modeString()));
+            System.out.printf(Locale.US, "%-16s %7.0f FPS   %s%n", s.name, f, modeString());
+
+            stepIndex++;
+            if (stepIndex >= steps.size()) {
+                finishAuto();
+            } else {
+                beginStep();
+            }
+        }
+    }
+
+    private void finishAuto() {
+        autoRunning = false;
+        File csvFile = new File(outDir, "hasil_fps.csv");
+        try {
+            Files.writeString(csvFile.toPath(), csv.toString());
+        } catch (IOException e) {
+            System.err.println("Gagal menulis CSV: " + e.getMessage());
+        }
+        applyBase();
+        updateTitle();
+        System.out.println("=== SELESAI. Hasil ada di: " + outDir.getAbsolutePath() + " ===");
+    }
+
+    private void saveScreenshot(String name) {
+        int[] fw = new int[1];
+        int[] fh = new int[1];
+        glfwGetFramebufferSize(window, fw, fh);
+        int w = fw[0], h = fh[0];
+        if (w == 0 || h == 0) return;
+
+        ByteBuffer buf = BufferUtils.createByteBuffer(w * h * 3);
+        glReadBuffer(GL_BACK);
+        glPixelStorei(GL_PACK_ALIGNMENT, 1);
+        glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, buf);
+
+        // OpenGL membaca dari baris paling bawah, jadi balik urutan baris dulu
+        ByteBuffer flipped = BufferUtils.createByteBuffer(w * h * 3);
+        byte[] row = new byte[w * 3];
+        for (int y = 0; y < h; y++) {
+            buf.position((h - 1 - y) * w * 3);
+            buf.get(row);
+            flipped.put(row);
+        }
+        flipped.flip();
+
+        File file = new File(outDir, name + ".png");
+        if (!STBImageWrite.stbi_write_png(file.getAbsolutePath(), w, h, 3, flipped, w * 3)) {
+            System.err.println("Gagal menyimpan screenshot: " + file.getAbsolutePath());
+        }
     }
 }
